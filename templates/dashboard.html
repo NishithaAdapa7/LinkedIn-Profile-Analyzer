@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Dashboard</title>
+</head>
+<body>
+    <h1>Welcome, {{ current_user.username }}!</h1>
+    <form method="POST" enctype="multipart/form-data">
+        <label for="resume">Upload your Resume (PDF or DOCX):</label><br>
+        <input type="file" name="resume" accept=".pdf,.docx" required><br><br>
+
+        <label for="jd">Paste Job Description:</label><br>
+        <textarea name="jd" rows="10" cols="50" placeholder="Paste the job description here..." required></textarea><br><br>
+
+        <input type="submit" value="Submit">
+    </form>
+
+    <br>
+    <a href="{{ url_for('logout') }}">Logout</a>
+</body>
+</html>
