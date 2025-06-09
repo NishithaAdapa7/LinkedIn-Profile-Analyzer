@@ -1,5 +1,5 @@
 # LinkedIn-Profile-Analyzer
 
 ## Contributors 
-Soha Farhana 
-Adapa Nishitha
+### Soha Farhana 
+### Adapa Nishitha
