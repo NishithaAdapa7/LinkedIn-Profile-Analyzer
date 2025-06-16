@@ -1,9 +1,21 @@
 <!DOCTYPE html>
 <html>
-<head><title>Home</title></head>
+<head>
+    <title>Home</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; text-align: center; }
+        .container { background-color: #fff; padding: 30px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); max-width: 600px; margin: auto; margin-top: 50px; }
+        h1 { color: #333; }
+        a { color: #007bff; text-decoration: none; margin: 0 10px; font-size: 18px; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
 <body>
-    <h1>Welcome to the Home Page</h1>
-    <a href="{{ url_for('login') }}">Login</a> |
-    <a href="{{ url_for('register') }}">Register</a>
+    <div class="container">
+        <h1>Welcome to the Resume & JD Matcher</h1>
+        <p>Get your resume analyzed and find relevant learning resources.</p>
+        <a href="{{ url_for('login') }}">Login</a> |
+        <a href="{{ url_for('register') }}">Register</a>
+    </div>
 </body>
 </html>
