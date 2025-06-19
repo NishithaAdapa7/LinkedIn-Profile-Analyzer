@@ -1,0 +1,111 @@
+/* Minimal dark blue theme, Bookman Old Style font */
+body {
+    background: #0a2342;
+    color: #e0e6ed;
+    font-family: 'Bookman Old Style', Bookman, serif;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    align-items: center;
+}
+
+a, a:visited {
+    color: #4f8cff;
+    font-size: 1em;
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+input, button, select, textarea {
+    background: #16335b;
+    color: #e0e6ed;
+    border: 1px solid #274472;
+    font-family: inherit;
+    font-size: 1em;
+    padding: 0.6em 1em;
+    border-radius: 5px;
+    margin-bottom: 1em;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+button {
+    background: #274472;
+    color: #e0e6ed;
+    border: none;
+    cursor: pointer;
+    transition: background 0.2s;
+    font-weight: bold;
+}
+
+button:hover {
+    background: #4f8cff;
+    color: #0a2342;
+}
+
+.container, .content, main, section {
+    background: rgba(10,35,66,0.98);
+    border-radius: 10px;
+    padding: 2em 1.5em;
+    margin: 2em auto;
+    box-shadow: 0 2px 16px rgba(10,35,66,0.12);
+    max-width: 480px;
+    width: 100%;
+    text-align: left;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #b3c7e6;
+    font-family: 'Bookman Old Style', Bookman, serif;
+    font-size: 2em;
+    margin-bottom: 0.5em;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5em;
+    color: #b3c7e6;
+}
+
+.flash {
+    background: #274472;
+    color: #fff;
+    padding: 0.7em 1em;
+    border-radius: 5px;
+    margin-bottom: 1em;
+    text-align: center;
+}
+
+.section {
+    margin-bottom: 2em;
+}
+
+ul, ol {
+    margin-left: 1.2em;
+    margin-bottom: 1em;
+}
+
+pre {
+    background: #16335b;
+    color: #e0e6ed;
+    padding: 1em;
+    border-radius: 5px;
+    overflow-x: auto;
+    font-size: 1em;
+}
+
+::-webkit-scrollbar {
+    width: 8px;
+    background: #16335b;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #274472;
+    border-radius: 4px;
+}
