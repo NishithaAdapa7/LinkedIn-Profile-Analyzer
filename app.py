@@ -15,14 +15,31 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 import json
 
-# Download NLTK stopwords if not already downloaded
-try:
-    stopwords.words('english')
-    word_tokenize("test") # Check for punkt as well
-except LookupError:
+# Download NLTK resources if not already downloaded
+def setup_nltk():
     import nltk
-    nltk.download('stopwords')
-    nltk.download('punkt')
+    required_resources = ['stopwords', 'punkt', 'punkt_tab']
+    
+    for resource in required_resources:
+        try:
+            nltk.data.find(f'tokenizers/{resource}')
+        except LookupError:
+            try:
+                print(f"Downloading {resource}...")
+                nltk.download(resource, quiet=True)
+            except Exception as e:
+                print(f"Could not download {resource}: {e}")
+    
+    # Test if everything works
+    try:
+        stopwords.words('english')
+        word_tokenize("test")
+        print("✅ NLTK setup complete!")
+    except Exception as e:
+        print(f"❌ NLTK setup failed: {e}")
+
+# Call the setup function
+setup_nltk()
 
 
 app = Flask(__name__)
@@ -93,12 +110,19 @@ def extract_text_from_pdf(pdf_path):
 def parse_resume(text):
     doc = nlp(text)
 
-    # Extracting names (basic approach)
+    # Extracting names (improved approach)
     name = ""
     for ent in doc.ents:
         if ent.label_ == "PERSON":
             name = ent.text
-            break # Assuming the first person is the name
+            break
+    # Fallback: use first non-empty line if SpaCy fails
+    if not name:
+        for line in text.splitlines():
+            line = line.strip()
+            if line and line.replace(' ', '').isalpha() and line[0].isupper():
+                name = line
+                break
 
     # Extracting emails (regex)
     email = re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
@@ -163,36 +187,71 @@ def extract_skills(text):
         "full stack", "ux/ui", "design", "autocad", "matlab", "r", "sas", "spss"
     ]
 
+    # Add exclusion list for locations, names, and irrelevant terms
+    exclusion_list = [
+        "andhra pradesh", "telangana", "hyderabad", "bangalore", "chennai", "mumbai", "delhi",
+        "india", "usa", "united states", "canada", "uk", "united kingdom", "australia",
+        "tamil nadu", "karnataka", "kerala", "maharashtra", "gujarat", "rajasthan",
+        "national institute of technology", "iit", "nit", "indian institute of technology",
+        "university", "college", "institute", "school", "ltd", "pvt", "private", "limited",
+        "company", "corporation", "inc", "technologies", "solutions", "systems", "services",
+        "infosys", "tcs", "wipro", "cognizant", "accenture", "capgemini", "hcl", "tech mahindra"
+    ]
+
     found_skills = []
     text_lower = text.lower()
     
     # Tokenize and remove stopwords for better matching
     words = word_tokenize(text_lower)
-    # Using a set for stop_words lookup is faster
     stop_words_set = set(stopwords.words('english'))
     filtered_words = [word for word in words if word.isalnum() and word not in stop_words_set]
-    filtered_text = ' '.join(filtered_words) # Join back for multi-word skill matching
+    filtered_text = ' '.join(filtered_words)
 
     # Match single and multi-word skills from predefined list
     for skill in common_skills:
         if skill.lower() in filtered_text:
-            found_skills.append(skill.capitalize()) # Capitalize for consistent display
+            found_skills.append(skill.capitalize())
 
-    # Use SpaCy's entity recognition for potential skills (often picks up organizations, products, etc.)
+    # Use SpaCy's entity recognition with better filtering
     doc = nlp(text)
     for ent in doc.ents:
-        # Consider specific entity types that might represent skills/technologies
-        # This list can be refined based on what SpaCy models typically tag well
-        if ent.label_ in ["ORG", "PRODUCT", "LANGUAGE", "NORP", "GPE"]: # NORP for nationalities/religious/political groups, GPE for geopolitical entities, often pick up tech companies/frameworks. Be careful with these.
-            # Avoid adding very short or common words that aren't skills
-            if len(ent.text) > 2 and ent.text.lower() not in stop_words_set:
-                if ent.text.lower() not in [s.lower() for s in found_skills]: # Avoid duplicates
-                    found_skills.append(ent.text)
+        # Only consider certain entity types and apply strict filtering
+        if ent.label_ in ["ORG", "PRODUCT"]:  # Removed GPE and NORP to avoid locations
+            entity_text = ent.text.lower().strip()
+            
+            # Skip if it's in exclusion list
+            if any(excluded.lower() in entity_text for excluded in exclusion_list):
+                continue
+                
+            # Skip very short terms or common words
+            if len(entity_text) <= 2 or entity_text in stop_words_set:
+                continue
+                
+            # Skip if it contains numbers (likely dates, versions, etc.)
+            if any(char.isdigit() for char in entity_text):
+                continue
+                
+            # Skip if it looks like a company name (contains common suffixes)
+            company_suffixes = ["ltd", "inc", "corp", "llc", "pvt", "limited", "technologies", "solutions"]
+            if any(suffix in entity_text for suffix in company_suffixes):
+                continue
+                
+            # Only add if it's not already in the list (case-insensitive)
+            if entity_text not in [s.lower() for s in found_skills]:
+                found_skills.append(ent.text.title())
+    
+    # Additional filtering: remove skills that are likely locations or person names
+    filtered_skills = []
+    for skill in found_skills:
+        skill_lower = skill.lower()
+        # Skip if it's clearly a location or person name
+        if not any(excluded.lower() in skill_lower for excluded in exclusion_list):
+            filtered_skills.append(skill)
     
     # Deduplicate and return
-    return sorted(list(set(found_skills))) # Sort for consistent order
+    return sorted(list(set(filtered_skills)))
 
-def compare_skills_and_score(resume_skills, jd_skills):
+def compare_skills_and_score(resume_skills, jd_skills, resume_text="", jd_text=""):
     resume_set = set(skill.lower() for skill in resume_skills)
     jd_set = set(skill.lower() for skill in jd_skills)
 
@@ -200,40 +259,64 @@ def compare_skills_and_score(resume_skills, jd_skills):
     missing_skills = sorted(list(jd_set.difference(resume_set)))
     extra_skills = sorted(list(resume_set.difference(jd_set)))
 
-    # Calculate ATS Score
-    if len(jd_set) == 0:
-        ats_score = 0 # Or 100 if no JD skills are expected, depends on interpretation
-        if len(resume_set) > 0: # If resume has skills but JD has none
-            ats_score = 50 # Arbitrary score for some resume skills, no JD comparison
+    # Enhanced ATS Score Calculation with multiple factors
+    skill_match_score = 0
+    keyword_density_score = 0
+    format_score = 0
+    experience_relevance_score = 0
+    
+    # 1. Skills Matching Score (40% weight)
+    if len(jd_set) > 0:
+        skill_match_score = (len(matched_skills) / len(jd_set)) * 100
     else:
-        ats_score = (len(matched_skills) / len(jd_set)) * 100
-    ats_score = round(ats_score, 2) # Round to 2 decimal places
+        skill_match_score = 50 if len(resume_set) > 0 else 0
+    
+    # 2. Keyword Density Score (25% weight)
+    if jd_text and resume_text:
+        jd_keywords = set(word.lower() for word in word_tokenize(jd_text) 
+                         if word.isalnum() and len(word) > 3)
+        resume_keywords = set(word.lower() for word in word_tokenize(resume_text) 
+                            if word.isalnum() and len(word) > 3)
+        
+        common_keywords = jd_keywords.intersection(resume_keywords)
+        if len(jd_keywords) > 0:
+            keyword_density_score = (len(common_keywords) / len(jd_keywords)) * 100
+        else:
+            keyword_density_score = 50
+    else:
+        keyword_density_score = 50
+    
+    # 3. Format Score (20% weight) - Basic ATS-friendly format checks
+    format_score = calculate_format_score(resume_text)
+    
+    # 4. Experience Relevance Score (15% weight)
+    experience_relevance_score = calculate_experience_relevance(resume_text, jd_text)
+    
+    # Calculate weighted ATS score
+    ats_score = (
+        skill_match_score * 0.40 +
+        keyword_density_score * 0.25 +
+        format_score * 0.20 +
+        experience_relevance_score * 0.15
+    )
+    
+    ats_score = round(ats_score, 2)
 
-    # Determine Resume Strength
+    # Enhanced strength assessment
     strength = "Weak"
-    if ats_score >= 80:
+    if ats_score >= 85:
         strength = "Excellent"
-    elif ats_score >= 60:
+    elif ats_score >= 70:
         strength = "Good"
-    elif ats_score >= 30:
+    elif ats_score >= 50:
         strength = "Average"
 
-    # Generate Overall Feedback
-    feedback = "Based on the comparison, here are some recommendations:\n\n"
-    if ats_score < 30:
-        feedback += "- Your resume seems to have very few matching skills with the job description. Consider tailoring your resume more closely to the job requirements.\n"
-    elif ats_score < 60:
-        feedback += "- You have some matching skills, but there's room for improvement. Focus on highlighting skills directly relevant to the job description.\n"
-    else:
-        feedback += "- Your resume shows a strong match with the job description! Well done.\n"
-
-    if missing_skills:
-        feedback += f"- Consider adding or emphasizing the following crucial skills from the job description in your resume: {', '.join(missing_skills)}.\n"
-    if extra_skills:
-        feedback += f"- You have listed skills not explicitly mentioned in the job description: {', '.join(extra_skills)}. While these might be valuable, ensure they don't overshadow the core requirements.\n"
-    
-    if len(jd_set) == 0:
-        feedback += "- No specific skills were extracted from the job description. Please ensure the job description contains clear technical keywords for better analysis."
+    # Enhanced feedback with detailed breakdown
+    feedback = generate_detailed_feedback(
+        ats_score, skill_match_score, keyword_density_score, 
+        format_score, experience_relevance_score, 
+        matched_skills, missing_skills, extra_skills
+    )
     
     return {
         "ats_score": ats_score,
@@ -241,46 +324,121 @@ def compare_skills_and_score(resume_skills, jd_skills):
         "matched_skills": matched_skills,
         "missing_skills": missing_skills,
         "extra_skills": extra_skills,
-        "feedback": feedback
+        "feedback": feedback,
+        "score_breakdown": {
+            "skill_match": round(skill_match_score, 2),
+            "keyword_density": round(keyword_density_score, 2),
+            "format_score": round(format_score, 2),
+            "experience_relevance": round(experience_relevance_score, 2)
+        }
     }
 
+def calculate_format_score(resume_text):
+    """Calculate ATS-friendly format score"""
+    score = 100
+    
+    # Check for ATS-unfriendly elements
+    if len(re.findall(r'[│┌┐└┘├┤┬┴┼]', resume_text)) > 0:
+        score -= 15  # Tables/graphics characters
+    
+    if len(re.findall(r'[@#$%^&*()_+=\[\]{}|\\:";\'<>?,./]', resume_text)) > len(resume_text) * 0.05:
+        score -= 10  # Too many special characters
+    
+    # Check for contact info presence
+    if not re.search(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', resume_text):
+        score -= 20  # No email found
+    
+    if not re.search(r'(\+?\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}', resume_text):
+        score -= 15  # No phone found
+    
+    # Check for standard sections
+    sections = ['education', 'experience', 'skills', 'work', 'employment']
+    found_sections = sum(1 for section in sections if section.lower() in resume_text.lower())
+    if found_sections < 3:
+        score -= 20
+    
+    return max(0, score)
 
-def suggest_courses_and_videos(skills):
-    # This is a placeholder function. In a real application, you would:
-    # 1. Have a database of courses/videos linked to skills.
-    # 2. Use a recommendation engine.
-    # 3. Integrate with APIs from learning platforms (e.g., Coursera, Udemy, YouTube).
-
-    suggestions = {}
-    for skill in skills:
-        skill_lower = skill.lower()
-        if "python" in skill_lower:
-            suggestions[skill] = [
-                {"title": "Python for Everybody (Coursera)", "url": "https://www.coursera.org/specializations/python"},
-                {"title": "Corey Schafer Python Tutorials (YouTube)", "url": "https://www.youtube.com/playlist?list=PL-osiEwhsQmC9--K_f6wM-Vr-d2fthgxC"} # Updated link
-            ]
-        elif "javascript" in skill_lower or "react" in skill_lower or "node.js" in skill_lower:
-            suggestions[skill] = [
-                {"title": "The Complete JavaScript Course (Udemy)", "url": "https://www.udemy.com/course/the-complete-javascript-course/"},
-                {"title": "Academind React.js Course (YouTube)", "url": "https://www.youtube.com/playlist?list=PL55RiY5tL51rz0EamN2q3_M5j7jY2dM_D"} # Updated link
-            ]
-        elif "machine learning" in skill_lower or "data science" in skill_lower:
-             suggestions[skill] = [
-                {"title": "Machine Learning by Andrew Ng (Coursera)", "url": "https://www.coursera.org/learn/machine-learning"},
-                {"title": "StatQuest with Josh Starmer (YouTube)", "url": "https://www.youtube.com/@StatQuest"} # Updated link
-            ]
-        elif "sql" in skill_lower:
-             suggestions[skill] = [
-                {"title": "SQL for Data Science (Coursera)", "url": "https://www.coursera.org/learn/sql-for-data-science"},
-                {"title": "FreeCodeCamp SQL Tutorials (YouTube)", "url": "https://www.youtube.com/playlist?list=PLWKjhJtqVunFX52q3Y-2mYlDFG0_QxR6M"} # Updated link
-            ]
+def calculate_experience_relevance(resume_text, jd_text):
+    """Calculate experience relevance score"""
+    if not jd_text or not resume_text:
+        return 50
+    
+    # Extract years of experience mentioned
+    jd_years = re.findall(r'(\d+)\+?\s*years?\s+(?:of\s+)?experience', jd_text.lower())
+    resume_years = re.findall(r'(\d+)\+?\s*years?\s+(?:of\s+)?experience', resume_text.lower())
+    
+    score = 70  # Base score
+    
+    if jd_years and resume_years:
+        required_years = max([int(year) for year in jd_years])
+        candidate_years = max([int(year) for year in resume_years])
+        
+        if candidate_years >= required_years:
+            score = 90
+        elif candidate_years >= required_years * 0.8:
+            score = 75
         else:
-            suggestions[skill] = [
-                {"title": f"Search for {skill} tutorials on YouTube", "url": f"https://www.youtube.com/results?search_query={skill.replace(' ', '+')}+tutorial"}, # Corrected Youtube URL
-                {"title": f"Search for {skill} courses on Coursera", "url": f"https://www.coursera.org/search?query={skill.replace(' ', '%20')}"}
-            ]
-    return suggestions
+            score = 50
+    
+    # Check for relevant job titles/roles
+    common_roles = ['developer', 'engineer', 'analyst', 'manager', 'specialist', 'consultant']
+    jd_roles = [role for role in common_roles if role in jd_text.lower()]
+    resume_roles = [role for role in common_roles if role in resume_text.lower()]
+    
+    if set(jd_roles).intersection(set(resume_roles)):
+        score += 10
+    
+    return min(100, score)
 
+def generate_detailed_feedback(ats_score, skill_match, keyword_density, format_score, 
+                             experience_relevance, matched_skills, missing_skills, extra_skills):
+    """Generate comprehensive feedback with score breakdown"""
+    feedback = f"🎯 ATS Score Breakdown:\n\n"
+    feedback += f"• Overall ATS Score: {ats_score}%\n"
+    feedback += f"• Skills Match: {skill_match}% (40% weight)\n"
+    feedback += f"• Keyword Density: {keyword_density}% (25% weight)\n"
+    feedback += f"• Format Score: {format_score}% (20% weight)\n"
+    feedback += f"• Experience Relevance: {experience_relevance}% (15% weight)\n\n"
+    
+    feedback += "📊 Detailed Analysis:\n\n"
+    
+    if ats_score < 50:
+        feedback += "❌ Critical Issues: Your resume needs significant improvement to pass ATS screening.\n"
+    elif ats_score < 70:
+        feedback += "⚠️ Moderate Issues: Your resume has potential but needs optimization.\n"
+    else:
+        feedback += "✅ Strong Profile: Your resume is well-optimized for ATS systems.\n"
+    
+    if skill_match < 60:
+        feedback += f"\n🔧 Skills Improvement: Only {len(matched_skills)} out of required skills matched.\n"
+    
+    if missing_skills:
+        feedback += f"\n📚 Missing Skills: {', '.join(missing_skills[:5])}{'...' if len(missing_skills) > 5 else ''}\n"
+    
+    if format_score < 80:
+        feedback += f"\n📄 Format Issues: Ensure your resume uses ATS-friendly formatting (score: {format_score}%)\n"
+    
+    if experience_relevance < 70:
+        feedback += f"\n💼 Experience Gap: Consider highlighting more relevant experience (score: {experience_relevance}%)\n"
+    
+    feedback += f"\n🎯 Recommendations:\n"
+    if missing_skills:
+        feedback += f"• Add these key skills: {', '.join(missing_skills[:3])}\n"
+    feedback += f"• Use more keywords from the job description\n"
+    feedback += f"• Ensure clean, simple formatting without tables or graphics\n"
+    feedback += f"• Quantify your achievements with numbers and metrics\n"
+    
+    return feedback
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in {'pdf'} # Only allow PDF for now
+
+# Create database
+with app.app_context():
+    db.create_all()
+    print("✅ Tables created!")
+    print("📂 Database path:", os.path.abspath("database.db"))
 
 @app.route('/')
 def home():
@@ -294,80 +452,8 @@ def login():
         if user and bcrypt.check_password_hash(user.password, form.password.data):
             login_user(user)
             return redirect(url_for('dashboard'))
-        flash('Invalid username or password.', 'danger') # Flash message for invalid credentials
+        flash('Invalid username or password.', 'danger')
     return render_template('login.html', form=form)
-
-@app.route('/dashboard', methods=['GET', 'POST'])
-@login_required
-def dashboard():
-    form = UploadForm() # Use the UploadForm for JD
-    if request.method == 'POST':
-        resume_file = request.files.get('resume')
-        jd_text = form.jd.data # Get JD from form
-
-        if not resume_file or not jd_text:
-            flash("Please upload a resume and paste the job description.", "danger")
-            return redirect(url_for('dashboard'))
-
-        if resume_file.filename == '':
-            flash("No selected file for resume.", "danger")
-            return redirect(url_for('dashboard'))
-
-        if resume_file and allowed_file(resume_file.filename):
-            filename = secure_filename(resume_file.filename)
-            resume_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            resume_file.save(resume_path)
-
-            flash("Resume uploaded successfully!", "success")
-
-            # 3) PDF Extraction
-            resume_text = extract_text_from_pdf(resume_path)
-            if not resume_text:
-                flash("Could not extract text from the resume PDF. Please ensure it's a valid PDF.", "danger")
-                return redirect(url_for('dashboard'))
-
-            # 4) Resume Parsing (Basic Info)
-            parsed_resume_data = parse_resume(resume_text)
-            
-            # 5) Extract Skills
-            extracted_skills = extract_skills(parsed_resume_data['raw_text']) # Use raw text for skill extraction
-            jd_skills = extract_skills(jd_text) # Extract skills from JD
-
-            # 6) Compare Skills and Calculate ATS Score
-            comparison_results = compare_skills_and_score(extracted_skills, jd_skills)
-
-            # 7) Suggest Courses and Videos (based on ALL extracted skills, or missing skills, depending on desired logic)
-            # For this example, we'll suggest based on all skills found in the resume
-            suggested_resources = suggest_courses_and_videos(extracted_skills)
-
-            # Now, pass all this data to a results template
-            return render_template(
-                'results.html',
-                resume_data=parsed_resume_data,
-                extracted_resume_skills=extracted_skills, # Renamed for clarity
-                jd_text=jd_text,
-                jd_skills=jd_skills,
-                suggested_resources=suggested_resources,
-                # New comparison data:
-                ats_score=comparison_results['ats_score'],
-                resume_strength=comparison_results['strength'],
-                matched_skills=comparison_results['matched_skills'],
-                missing_skills=comparison_results['missing_skills'],
-                extra_skills=comparison_results['extra_skills'],
-                overall_feedback=comparison_results['feedback']
-            )
-        else:
-            flash("Invalid file type for resume. Only PDF is allowed.", "danger")
-            return redirect(url_for('dashboard'))
-
-    return render_template('dashboard.html', form=form)
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    flash('You have been logged out.', 'info')
-    return redirect(url_for('login'))
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
@@ -381,15 +467,56 @@ def register():
         return redirect(url_for('login'))
     return render_template('register.html', form=form)
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in {'pdf'} # Only allow PDF for now
+@app.route('/dashboard', methods=['GET', 'POST'])
+@login_required
+def dashboard():
+    form = UploadForm()
+    if request.method == 'POST':
+        resume_file = request.files.get('resume')
+        jd_text = form.jd.data
+        if not resume_file or not jd_text:
+            flash("Please upload a resume and paste the job description.", "danger")
+            return redirect(url_for('dashboard'))
+        if resume_file.filename == '':
+            flash("No selected file for resume.", "danger")
+            return redirect(url_for('dashboard'))
+        if resume_file and allowed_file(resume_file.filename):
+            filename = secure_filename(resume_file.filename)
+            resume_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            resume_file.save(resume_path)
+            flash("Resume uploaded successfully!", "success")
+            resume_text = extract_text_from_pdf(resume_path)
+            if not resume_text:
+                flash("Could not extract text from the resume PDF. Please ensure it's a valid PDF.", "danger")
+                return redirect(url_for('dashboard'))
+            parsed_resume_data = parse_resume(resume_text)
+            extracted_skills = extract_skills(parsed_resume_data['raw_text'])
+            jd_skills = extract_skills(jd_text)
+            comparison_results = compare_skills_and_score(extracted_skills, jd_skills, parsed_resume_data['raw_text'], jd_text)
+            return render_template(
+                'results.html',
+                resume_data=parsed_resume_data,
+                extracted_resume_skills=extracted_skills,
+                jd_text=jd_text,
+                jd_skills=jd_skills,
+                ats_score=comparison_results['ats_score'],
+                resume_strength=comparison_results['strength'],
+                matched_skills=comparison_results['matched_skills'],
+                missing_skills=comparison_results['missing_skills'],
+                extra_skills=comparison_results['extra_skills'],
+                overall_feedback=comparison_results['feedback']
+            )
+        else:
+            flash("Invalid file type for resume. Only PDF is allowed.", "danger")
+            return redirect(url_for('dashboard'))
+    return render_template('dashboard.html', form=form)
 
-# Create database
-with app.app_context():
-    db.create_all()
-    print("✅ Tables created!")
-    print("📂 Database path:", os.path.abspath("database.db"))
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('You have been logged out.', 'info')
+    return redirect(url_for('login'))
 
 if __name__ == "__main__":
     app.run(debug=True)
