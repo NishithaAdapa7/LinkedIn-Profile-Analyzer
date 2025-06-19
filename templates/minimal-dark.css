@@ -1,0 +1,32 @@
+/* Minimal dark blue theme, Bookman Old Style font */
+body {
+    background: #0a2342; /* very dark blue */
+    color: #e0e6ed;
+    font-family: 'Bookman Old Style', Bookman, serif;
+    margin: 0;
+    padding: 0;
+}
+
+a, a:visited {
+    color: #4f8cff;
+}
+
+input, button, select, textarea {
+    background: #16335b;
+    color: #e0e6ed;
+    border: 1px solid #274472;
+    font-family: inherit;
+}
+
+.container, .content, main, section {
+    background: rgba(10,35,66,0.95);
+    border-radius: 6px;
+    padding: 1.5em;
+    margin: 1em auto;
+    box-shadow: 0 2px 8px rgba(10,35,66,0.08);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #b3c7e6;
+    font-family: 'Bookman Old Style', Bookman, serif;
+}
