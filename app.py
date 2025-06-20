@@ -106,24 +106,23 @@ def extract_text_from_pdf(pdf_path):
         print(f"Error extracting text from PDF: {e}")
         return None
     return text
+def extract_name_from_lines(lines):
+    for line in lines:
+        stripped_line = line.strip()
+        # Check if line has exactly 2 words and is likely a name (all alphabetic)
+        if len(stripped_line.split()) == 2 and all(word.isalpha() for word in stripped_line.split()):
+            return stripped_line.title()  # Title-case the name (e.g., "Mansi Mehta")
+    return "N/A"
+
+    
 
 def parse_resume(text):
     doc = nlp(text)
 
     # Extracting names (improved approach)
-    name = ""
-    for ent in doc.ents:
-        if ent.label_ == "PERSON":
-            name = ent.text
-            break
-    # Fallback: use first non-empty line if SpaCy fails
-    if not name:
-        for line in text.splitlines():
-            line = line.strip()
-            if line and line.replace(' ', '').isalpha() and line[0].isupper():
-                name = line
-                break
-
+    lines = text.splitlines()
+    # Use layout-based name extraction
+    name = extract_name_from_lines(lines)
     # Extracting emails (regex)
     email = re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
     email = email[0] if email else "N/A"
