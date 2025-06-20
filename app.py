@@ -123,6 +123,18 @@ def parse_resume(text):
     lines = text.splitlines()
     # Use layout-based name extraction
     name = extract_name_from_lines(lines)
+    for ent in doc.ents:
+        if ent.label_ == "PERSON":
+            name = ent.text
+            break
+    # Fallback: use first non-empty line if SpaCy fails
+    if not name:
+        for line in text.splitlines():
+            line = line.strip()
+            if line and line.replace(' ', '').isalpha() and line[0].isupper():
+                name = line
+                break
+
     # Extracting emails (regex)
     email = re.findall(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", text)
     email = email[0] if email else "N/A"
@@ -267,6 +279,21 @@ def compare_skills_and_score(resume_skills, jd_skills, resume_text="", jd_text="
     # 1. Skills Matching Score (40% weight)
     if len(jd_set) > 0:
         skill_match_score = (len(matched_skills) / len(jd_set)) * 100
+    else:
+        skill_match_score = 50 if len(resume_set) > 0 else 0
+    
+    # 2. Keyword Density Score (25% weight)
+    if jd_text and resume_text:
+        jd_keywords = set(word.lower() for word in word_tokenize(jd_text) 
+                         if word.isalnum() and len(word) > 3)
+        resume_keywords = set(word.lower() for word in word_tokenize(resume_text) 
+                            if word.isalnum() and len(word) > 3)
+        
+        common_keywords = jd_keywords.intersection(resume_keywords)
+        if len(jd_keywords) > 0:
+            keyword_density_score = (len(common_keywords) / len(jd_keywords)) * 100
+        else:
+            keyword_density_score = 50
     else:
         skill_match_score = 50 if len(resume_set) > 0 else 0
     
