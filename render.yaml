@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ats-score-checker
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    region: oregon
+    plan: free
+    envVars:
+      - key: PORT
+        value: 10000
